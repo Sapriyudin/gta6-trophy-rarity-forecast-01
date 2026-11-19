@@ -47,13 +47,17 @@ spread is wide on purpose — a regime jump is genuinely uncertain.
 **Kinetic regime — the history moves.** Per trophy, fit the logit rate
 against `ln(1 + hours since release)` over the last 24 h of reads
 (least squares, with empirical-Bayes shrinkage of the slope by its own
-standard error), project it to the target on the same log-time scale so
-growth saturates as time passes, and cap the result at a loose tier
-ceiling (platinum 3%, gold 45%, silver 60%, bronze 90%) plus a 40×
-growth cap. The spread combines the fit's residual volatility, a
-random-walk term growing with the horizon, and a trend-uncertainty term
-growing with the extrapolation distance. Quantiles are a logit-normal
-band around the median, rounded half-up to 4 decimals.
+standard error), project it to the target on the same log-time scale with
+the projected delta damped by 0.5 (a log-time line over-projects a
+saturating curve; 0.5 is the measured optimum across 8 synthetic worlds),
+and cap the result at 10× the last rate. Tier ceilings measured harmful
+in testing (they clip legitimate fast movers) and are off; the growth cap
+is the safety rail. The spread combines the fit's residual volatility
+(floored at 0.08), a random-walk term (0.25 per √day), and a
+trend-uncertainty term (0.20 per √dx, capped at 0.40) — narrowed in
+round 2 after coverage came in at 0.93–0.98 against a 0.90 nominal.
+Quantiles are a logit-normal band around the median, rounded half-up to
+4 decimals.
 
 ## Validation
 
@@ -69,11 +73,34 @@ house's own numbers imply the same: its persistence baseline scores
 
 The kinetic branch was tested on a synthetic 2.5-day moving history
 (360 reads, player base 638 → 45,000, per-trophy saturation curves):
-pinball loss 0.20 vs 0.32 for persistence on the synthetic day-7
-truth, 0.20 vs 0.44 in a slower-growth variant. Edge cases pass
+pinball loss 0.145 vs 0.315 for persistence on the synthetic day-7
+truth (typical miss 0.98 vs 6.17 points). Edge cases pass
 (single read, all-null reads, zero horizon, empty history, a rate of
 exactly 0). Outputs are deterministic — two runs write byte-identical
 files.
+
+Round 2 hardened the kinetic branch, which the practice cases never
+exercise (both practice inputs are flat and identical). Eight diverse
+synthetic worlds were built — four completion-time families (exponential,
+Weibull, lognormal, mixed), Exophase-style refresh steps (rates frozen
+for hours, then jumping), per-trophy bursts and stalls, and a late
+player flood — and scored against BOTH replicable house baselines
+(persistence and the fitted-curve trend baseline from the competition
+spec). The original model lost to a house baseline in 4 of the 8 worlds;
+after tuning (damp 0.7 → 0.5, tier ceilings off, growth cap 40× → 10×,
+narrower spread) it beats both baselines in all 8:
+
+| forecaster | worst world | mean (8 worlds) |
+|---|---|---|
+| this program (round 2) | **0.341** | **0.293** |
+| house trend baseline | 0.870 | 0.466 |
+| house persistence baseline | 0.721 | 0.478 |
+
+Flood-regime sensitivity was also checked: shifting any flood constant
+by ±0.3 logit moves the practice loss by at most ~0.10 (usually far
+less), and narrowing the flood spread was rejected — under a plausible
+calibration error its coverage collapses to 0.36, so the wide band
+stays. Details: `work/validation-final.log`, `work/round2/`.
 
 ## Files
 
