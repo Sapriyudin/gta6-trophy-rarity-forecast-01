@@ -23,10 +23,14 @@ no network, no model calls, fully deterministic:
   against ln(1 + hours since release) over the last 24h of reads
   (least squares, empirical-Bayes shrinkage of the slope by its own
   standard error), project it to the target on the same log-time scale
-  (growth saturates as time passes), and cap the result at a
-  tier ceiling.  The spread combines the fit's residual volatility, a
-  random-walk term growing with the horizon, and a trend-uncertainty
-  term growing with the extrapolation distance.
+  with the projected delta damped by 0.5 (a log-time line over-projects a
+  saturating curve; 0.5 is the measured optimum across 8 synthetic worlds),
+  and cap the result at 10x the last rate (the growth cap is the safety
+  rail; tier ceilings measured harmful and are off).  The spread combines
+  the fit's residual volatility, a random-walk term growing with the
+  horizon, and a trend-uncertainty term growing with the extrapolation
+  distance -- all narrowed in round 2 after coverage came in at 0.93-0.98
+  against a 0.90 nominal (bands wider than the true uncertainty).
 
 Quantiles are a logit-normal band around the median; outputs are
 rounded half-up to 4 decimals (as the house starter rounds them),
@@ -126,16 +130,21 @@ def flood_median_sigma(rate: float, tier: str, horizon_days: float):
 
 
 # --- kinetic regime (moving history) --------------------------------------
-# Tier ceilings for the day-7 earn share (percent): a safety rail against
-# explosive extrapolation, set loose on purpose — the trend, not the cap,
-# should do the work. (Story golds like the final mission can reach
-# tens of percent by day 7; only the platinum stays in single digits.)
-TIER_CEILING = {"platinum": 3.0, "gold": 45.0, "silver": 60.0, "bronze": 90.0}
+# Tier ceilings for the day-7 earn share (percent). Round 2 measured
+# ceilings as HARMFUL: at every damp level, tight ceilings lost to loose ones
+# and loose ones to none at all (worst world 0.40 -> 0.36) -- they clip
+# legitimate fast movers whose last rate is already high, while the growth
+# cap below is the rail that actually binds. Kept at 99 (off) with the
+# structure intact so a ceiling can be reintroduced if ever measured to help.
+TIER_CEILING = {"platinum": 99.0, "gold": 99.0, "silver": 99.0, "bronze": 99.0}
 # A log-time linear fit over the last 24h overstates how far a saturating
 # curve still climbs: damp the projected delta for that concavity.
-KINETIC_DAMP = 0.7
+# Measured in round 2 (8 synthetic worlds, 4 generative families): 0.5 beats
+# 0.6/0.7/0.8/1.0 on the worst world; 0.4 and 0.3 are worse again, so 0.5 is
+# an interior optimum, not a grid edge.
+KINETIC_DAMP = 0.5
 TIER_FALLBACK_RATE = {"platinum": 0.10, "gold": 0.20, "silver": 0.30, "bronze": 0.50}
-MAX_GROWTH_MULT = 40.0
+MAX_GROWTH_MULT = 10.0
 
 
 def linfit(xs, ys):
@@ -170,7 +179,7 @@ def kinetic_median_sigma(series, last_rate, tier, horizon_days, dx_target):
             b_use = b if se == 0.0 else 0.0
         else:
             b_use = b * (b * b) / (b * b + se * se)
-        resid_c = min(max(resid, 0.12), 0.90)
+        resid_c = min(max(resid, 0.08), 0.70)
     elif len(series) == 2:
         b_use = (ys[-1] - ys[0]) / (xs[-1] - xs[0]) if xs[-1] != xs[0] else 0.0
         b_use *= 0.5  # two points: half credit
@@ -185,9 +194,9 @@ def kinetic_median_sigma(series, last_rate, tier, horizon_days, dx_target):
     median = min(median, max(last_rate * MAX_GROWTH_MULT, 0.05))
     median = max(median, 0.01)
     sigma = math.sqrt(resid_c ** 2
-                      + (0.35 * math.sqrt(horizon_days)) ** 2
-                      + min(0.30 * math.sqrt(abs(dx_target)), 0.60) ** 2)
-    sigma = min(max(sigma, 0.25), 1.60)
+                      + (0.25 * math.sqrt(horizon_days)) ** 2
+                      + min(0.20 * math.sqrt(abs(dx_target)), 0.40) ** 2)
+    sigma = min(max(sigma, 0.15), 1.20)
     return median, sigma
 
 
